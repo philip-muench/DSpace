@@ -284,190 +284,124 @@ public class SolrLoggerServiceImpl implements SolrLoggerService, InitializingBea
      * @return a solr input document
      * @throws SQLException in case of a database exception
      */
-    protected SolrInputDocument getCommonSolrDoc(DSpaceObject dspaceObject, HttpServletRequest request, EPerson currentUser) throws SQLException {
-        boolean isSpiderBot = request != null && SpiderDetector.isSpider(request);
-        if(isSpiderBot &&
-                !configurationService.getBooleanProperty("usage-statistics.logBots", true))
-        {
-            return null;
-        }
+    protected SolrInputDocument getCommonSolrDoc(DSpaceObject dspaceObject, HttpServletRequest request,
+			EPerson currentUser) throws SQLException {
+		boolean isSpiderBot = request != null && SpiderDetector.isSpider(request);
+		if (isSpiderBot && !configurationService.getBooleanProperty("usage-statistics.logBots", true)) {
+			return null;
+		}
 
-        SolrInputDocument doc1 = new SolrInputDocument();
-        // Save our basic info that we already have
+		SolrInputDocument doc1;
 
-        if(request != null){
-            String ip = request.getRemoteAddr();
+		if (request == null) {
+			doc1 = new SolrInputDocument();
+			doc1.addField("time", DateFormatUtils.format(new Date(), DATE_FORMAT_8601));
+			if (currentUser != null && configurationService.getBooleanProperty("privacy.store_eperson", true)) {
+				doc1.addField("epersonid", currentUser.getID());
+			}
+		} else {
+			doc1 = getCommonSolrDoc(dspaceObject, request.getRemoteAddr(), request.getHeader("User-Agent"),
+					request.getHeader("X-Forwarded-For"), currentUser);
+			if (request.getHeader("referer") != null) {
+				doc1.addField("referrer", request.getHeader("referer"));
+			}
+		}
 
-            if (isUseProxies() && request.getHeader("X-Forwarded-For") != null) {
-                /* This header is a comma delimited list */
-                for (String xfip : request.getHeader("X-Forwarded-For").split(",")) {
-                    /* proxy itself will sometime populate this header with the same value in
-                    remote address. ordering in spec is vague, we'll just take the last
-                    not equal to the proxy
-                    */
-                    if (!request.getHeader("X-Forwarded-For").contains(ip)) {
-                        ip = xfip.trim();
-                    }
-                }
-            }
+		return doc1;
+	}
 
-            doc1.addField("ip", ip);
+	protected SolrInputDocument getCommonSolrDoc(DSpaceObject dspaceObject, String ip, String userAgent,
+			String xforwardedfor, EPerson currentUser) throws SQLException {
+		boolean isSpiderBot = SpiderDetector.isSpider(ip);
+		if (isSpiderBot && !configurationService.getBooleanProperty("usage-statistics.logBots", true)) {
+			return null;
+		}
 
-            //Also store the referrer
-            if(request.getHeader("referer") != null){
-                doc1.addField("referrer", request.getHeader("referer"));
-            }
+		SolrInputDocument doc1 = new SolrInputDocument();
+		// Save our basic info that we already have
 
-            try
-            {
-                String dns = DnsLookup.reverseDns(ip);
-                doc1.addField("dns", dns.toLowerCase());
-            }
-            catch (Exception e)
-            {
-                log.info("Failed DNS Lookup for IP:" + ip);
-                log.debug(e.getMessage(),e);
-            }
-		    if(request.getHeader("User-Agent") != null)
-		    {
-		        doc1.addField("userAgent", request.getHeader("User-Agent"));
-		    }
-		    doc1.addField("isBot",isSpiderBot);
-            // Save the location information if valid, save the event without
-            // location information if not valid
-            if (locationService != null) {
-                try {
-                    InetAddress ipAddress = InetAddress.getByName(ip);
-                    CityResponse location = locationService.city(ipAddress);
-                    String countryCode = location.getCountry().getIsoCode();
-                    double latitude = location.getLocation().getLatitude();
-                    double longitude = location.getLocation().getLongitude();
-                    if (!(
-                            "--".equals(countryCode)
-                            && latitude == -180
-                            && longitude == -180)
-                    ) {
-                        try {
-                            doc1.addField("continent", LocationUtils
-                                .getContinentCode(countryCode));
-                        } catch (Exception e) {
-                            System.out
-                                .println("COUNTRY ERROR: " + countryCode);
-                        }
-                        doc1.addField("countryCode", countryCode);
-                        doc1.addField("city", location.getCity().getName());
-                        doc1.addField("latitude", latitude);
-                        doc1.addField("longitude", longitude);
-                    }
-                } catch (IOException | GeoIp2Exception e) {
-                    log.error("Unable to get location of request:  {}", e.getMessage());
-                }
-            }
-        }
+		if (isUseProxies() && xforwardedfor != null) {
+			/* This header is a comma delimited list */
+			for (String xfip : xforwardedfor.split(",")) {
+				/*
+				 * proxy itself will sometime populate this header with the same
+				 * value in remote address. ordering in spec is vague, we'll
+				 * just take the last not equal to the proxy
+				 */
+				if (!xforwardedfor.contains(ip)) {
+					ip = xfip.trim();
+				}
+			}
+		}
+		if (configurationService.getBooleanProperty("privacy.store_ip", true)) {
+			doc1.addField("ip", ip);
+		}
 
-        if(dspaceObject != null){
-            doc1.addField("id", dspaceObject.getID());
-            doc1.addField("type", dspaceObject.getType());
-            storeParents(doc1, dspaceObject);
-        }
-        // Save the current time
-        doc1.addField("time", DateFormatUtils.format(new Date(), DATE_FORMAT_8601));
-        if (currentUser != null)
-        {
-            doc1.addField("epersonid", currentUser.getID());
-        }
+		if (configurationService.getBooleanProperty("privacy.store_hostname", true)) {
+			try {
+				String dns = DnsLookup.reverseDns(ip);
+				doc1.addField("dns", dns.toLowerCase());
+			} catch (Exception e) {
+				log.info("Failed DNS Lookup for IP:" + ip);
+				log.debug(e.getMessage(), e);
+			}
+		}
+		if (userAgent != null) {
+			doc1.addField("userAgent", userAgent);
+		}
+		doc1.addField("isBot", isSpiderBot);
+		// Save the location information if valid, save the event without
+		// location information if not valid
 
-        return doc1;
-    }
+		List<String> allowed_location_fields = Arrays
+				.asList(configurationService.getArrayProperty("privacy.stored_location_fields", new String[] {"continent", "countryCode", "city", "coords"}));
 
-    protected SolrInputDocument getCommonSolrDoc(DSpaceObject dspaceObject, String ip, String userAgent, String xforwardedfor, EPerson currentUser) throws SQLException {
-        boolean isSpiderBot = SpiderDetector.isSpider(ip);
-        if(isSpiderBot &&
-                !configurationService.getBooleanProperty("usage-statistics.logBots", true))
-        {
-            return null;
-        }
+		if (allowed_location_fields.size() > 0) {
+			if (locationService != null) {
+				try {
+					InetAddress ipAddress = InetAddress.getByName(ip);
+					CityResponse location = locationService.city(ipAddress);
+					String countryCode = location.getCountry().getIsoCode();
+					double latitude = location.getLocation().getLatitude();
+					double longitude = location.getLocation().getLongitude();
+					if (!("--".equals(countryCode) && latitude == -180 && longitude == -180)) {
+						if (allowed_location_fields.contains("continent")) {
+							try {
+								doc1.addField("continent", LocationUtils.getContinentCode(countryCode));
+							} catch (Exception e) {
+								System.out.println("COUNTRY ERROR: " + countryCode);
+							}
+						}
+						if (allowed_location_fields.contains("countryCode")) {
+							doc1.addField("countryCode", countryCode);
+						}
+						if (allowed_location_fields.contains("city")) {
+							doc1.addField("city", location.getCity().getName());
+						}
+						if (allowed_location_fields.contains("coords")) {
+							doc1.addField("latitude", latitude);
+							doc1.addField("longitude", longitude);
+						}
+					}
+				} catch (GeoIp2Exception | IOException e) {
+					log.error("Unable to get location of request:  {}", e.getMessage());
+				}
+			}
+		}
 
-        SolrInputDocument doc1 = new SolrInputDocument();
-        // Save our basic info that we already have
+		if (dspaceObject != null) {
+			doc1.addField("id", dspaceObject.getID());
+			doc1.addField("type", dspaceObject.getType());
+			storeParents(doc1, dspaceObject);
+		}
+		// Save the current time
+		doc1.addField("time", DateFormatUtils.format(new Date(), DATE_FORMAT_8601));
+		if (currentUser != null && configurationService.getBooleanProperty("privacy.store_eperson", true)) {
+			doc1.addField("epersonid", currentUser.getID());
+		}
 
-
-            if (isUseProxies() && xforwardedfor != null) {
-                /* This header is a comma delimited list */
-                for (String xfip : xforwardedfor.split(",")) {
-                    /* proxy itself will sometime populate this header with the same value in
-                    remote address. ordering in spec is vague, we'll just take the last
-                    not equal to the proxy
-                    */
-                    if (!xforwardedfor.contains(ip)) {
-                        ip = xfip.trim();
-                    }
-                }
-
-            doc1.addField("ip", ip);
-
-            try
-            {
-                String dns = DnsLookup.reverseDns(ip);
-                doc1.addField("dns", dns.toLowerCase());
-            }
-            catch (Exception e)
-            {
-                log.info("Failed DNS Lookup for IP:" + ip);
-                log.debug(e.getMessage(),e);
-            }
-		    if(userAgent != null)
-		    {
-		        doc1.addField("userAgent", userAgent);
-		    }
-		    doc1.addField("isBot",isSpiderBot);
-            // Save the location information if valid, save the event without
-            // location information if not valid
-            if (locationService != null) {
-                try {
-                    InetAddress ipAddress = InetAddress.getByName(ip);
-                    CityResponse location = locationService.city(ipAddress);
-                    String countryCode = location.getCountry().getIsoCode();
-                    double latitude = location.getLocation().getLatitude();
-                    double longitude = location.getLocation().getLongitude();
-                    if (!(
-                            "--".equals(countryCode)
-                            && latitude == -180
-                            && longitude == -180)
-                    ) {
-                        try {
-                            doc1.addField("continent", LocationUtils
-                                .getContinentCode(countryCode));
-                        } catch (Exception e) {
-                            System.out
-                                .println("COUNTRY ERROR: " + countryCode);
-                        }
-                        doc1.addField("countryCode", countryCode);
-                        doc1.addField("city", location.getCity().getName());
-                        doc1.addField("latitude", latitude);
-                        doc1.addField("longitude", longitude);
-                    }
-                } catch (GeoIp2Exception | IOException e) {
-                    log.error("Unable to get location of request:  {}", e.getMessage());
-                }
-            }
-        }
-
-        if(dspaceObject != null){
-            doc1.addField("id", dspaceObject.getID());
-            doc1.addField("type", dspaceObject.getType());
-            storeParents(doc1, dspaceObject);
-        }
-        // Save the current time
-        doc1.addField("time", DateFormatUtils.format(new Date(), DATE_FORMAT_8601));
-        if (currentUser != null)
-        {
-            doc1.addField("epersonid", currentUser.getID());
-        }
-
-        return doc1;
-    }
-
+		return doc1;
+	}
     
     @Override
     public void postSearch(DSpaceObject resultObject, HttpServletRequest request, EPerson currentUser,
@@ -523,53 +457,62 @@ public class SolrLoggerServiceImpl implements SolrLoggerService, InitializingBea
 
     @Override
     public void postWorkflow(UsageWorkflowEvent usageWorkflowEvent) throws SQLException {
-        initSolrYearCores();
-        try {
-            SolrInputDocument solrDoc = getCommonSolrDoc(usageWorkflowEvent.getObject(), null, null);
+		initSolrYearCores();
+		try {
+			SolrInputDocument solrDoc = getCommonSolrDoc(usageWorkflowEvent.getObject(), null, null);
 
-            //Log the current collection & the scope !
-            solrDoc.addField("owningColl", usageWorkflowEvent.getScope().getID());
-            storeParents(solrDoc, usageWorkflowEvent.getScope());
+			// Log the current collection & the scope !
+			solrDoc.addField("owningColl", usageWorkflowEvent.getScope().getID());
+			storeParents(solrDoc, usageWorkflowEvent.getScope());
 
-            if(usageWorkflowEvent.getWorkflowStep() != null){
-                solrDoc.addField("workflowStep", usageWorkflowEvent.getWorkflowStep());
-            }
-            if(usageWorkflowEvent.getOldState() != null){
-                solrDoc.addField("previousWorkflowStep", usageWorkflowEvent.getOldState());
-            }
-            if(usageWorkflowEvent.getGroupOwners() != null){
-                for (int i = 0; i < usageWorkflowEvent.getGroupOwners().length; i++) {
-                    Group group = usageWorkflowEvent.getGroupOwners()[i];
-                    solrDoc.addField("owner", "g" + group.getID());
-                }
-            }
-            if(usageWorkflowEvent.getEpersonOwners() != null){
-                for (int i = 0; i < usageWorkflowEvent.getEpersonOwners().length; i++) {
-                    EPerson ePerson = usageWorkflowEvent.getEpersonOwners()[i];
-                    solrDoc.addField("owner", "e" + ePerson.getID());
-                }
-            }
+			if (usageWorkflowEvent.getWorkflowStep() != null) {
+				solrDoc.addField("workflowStep", usageWorkflowEvent.getWorkflowStep());
+			}
+			if (usageWorkflowEvent.getOldState() != null) {
+				solrDoc.addField("previousWorkflowStep", usageWorkflowEvent.getOldState());
+			}
 
-            solrDoc.addField("workflowItemId", usageWorkflowEvent.getWorkflowItem().getID());
+			if (configurationService.getBooleanProperty("privacy.store_workflow_owners", true)) {
 
-            EPerson submitter = ((Item) usageWorkflowEvent.getObject()).getSubmitter();
-            if(submitter != null){
-                solrDoc.addField("submitter", submitter.getID());
-            }
-            solrDoc.addField("statistics_type", StatisticsType.WORKFLOW.text());
-            if(usageWorkflowEvent.getActor() != null){
-                solrDoc.addField("actor", usageWorkflowEvent.getActor().getID());
-            }
+				if (usageWorkflowEvent.getGroupOwners() != null) {
+					for (int i = 0; i < usageWorkflowEvent.getGroupOwners().length; i++) {
+						Group group = usageWorkflowEvent.getGroupOwners()[i];
+						solrDoc.addField("owner", "g" + group.getID());
+					}
+				}
+				if (usageWorkflowEvent.getEpersonOwners() != null) {
+					for (int i = 0; i < usageWorkflowEvent.getEpersonOwners().length; i++) {
+						EPerson ePerson = usageWorkflowEvent.getEpersonOwners()[i];
+						solrDoc.addField("owner", "e" + ePerson.getID());
+					}
+				}
+			}
 
-            solr.add(solrDoc);
-        }
-        catch (Exception e)
-        {
-            //Log the exception, no need to send it through, the workflow shouldn't crash because of this !
-        	log.error(e.getMessage(), e);
-        }
+			solrDoc.addField("workflowItemId", usageWorkflowEvent.getWorkflowItem().getID());
 
-    }
+			if (configurationService.getBooleanProperty("privacy.store_submitter", true)) {
+				EPerson submitter = ((Item) usageWorkflowEvent.getObject()).getSubmitter();
+				if (submitter != null) {
+					solrDoc.addField("submitter", submitter.getID());
+				}
+			}
+
+			solrDoc.addField("statistics_type", StatisticsType.WORKFLOW.text());
+
+			if (configurationService.getBooleanProperty("privacy.store_actor", true)) {
+				if (usageWorkflowEvent.getActor() != null) {
+					solrDoc.addField("actor", usageWorkflowEvent.getActor().getID());
+				}
+			}
+
+			solr.add(solrDoc);
+		} catch (Exception e) {
+			// Log the exception, no need to send it through, the workflow
+			// shouldn't crash because of this !
+			log.error(e.getMessage(), e);
+		}
+
+	}
 
     @Override
     public void storeParents(SolrInputDocument doc1, DSpaceObject dso)
