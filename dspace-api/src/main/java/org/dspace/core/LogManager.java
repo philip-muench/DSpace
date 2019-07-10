@@ -30,36 +30,33 @@ public class LogManager
      * 
      * @return the filled out log header
      */
-    public static String getHeader(Context context, String action,
-            String extrainfo)
-    {
-        String email = "anonymous";
-        String contextExtraInfo;
+    public static String getHeader(Context context, String action, String extrainfo) {
+		String email = "anonymous";
+		String contextExtraInfo;
 
-        if (context != null)
-        {
-            EPerson e = context.getCurrentUser();
+		if (context != null) {
 
-            if (e != null)
-            {
-                email = e.getEmail();
-            }
+			EPerson e = context.getCurrentUser();
 
-            contextExtraInfo = context.getExtraLogInfo();
-        }
-        else
-        {
-            contextExtraInfo = "no_context";
-        }
-        
+			if (e != null && DSpaceServicesFactory.getInstance().getConfigurationService().getBooleanProperty("privacy.logging.store_email", true)) {
+				email = e.getEmail();
+			}
 
-        StringBuilder result = new StringBuilder();
-        // Escape everthing but the extra context info because for some crazy reason two fields
-        // are generated inside this entry one for the session id, and another for the ip 
-        // address. Everything else should be escaped.
-        result.append(escapeLogField(email)).append(":").append(contextExtraInfo).append(":").append(escapeLogField(action)).append(":").append(escapeLogField(extrainfo));
-        return result.toString();
-    }
+			contextExtraInfo = context.getExtraLogInfo();
+		} else {
+			contextExtraInfo = "no_context";
+		}
+
+		StringBuilder result = new StringBuilder();
+		// Escape everthing but the extra context info because for some crazy
+		// reason two fields
+		// are generated inside this entry one for the session id, and another
+		// for the ip
+		// address. Everything else should be escaped.
+		result.append(escapeLogField(email)).append(":").append(contextExtraInfo).append(":")
+				.append(escapeLogField(action)).append(":").append(escapeLogField(extrainfo));
+		return result.toString();
+	}
     
     
     /**

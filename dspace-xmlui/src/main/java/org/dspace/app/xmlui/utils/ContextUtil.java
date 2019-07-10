@@ -109,23 +109,28 @@ public class ContextUtil
                 log.debug("Adding Special Group id="+String.valueOf(groups.get(i).getID()));
             }
 
+            ConfigurationService configurationService = DSpaceServicesFactory.getInstance().getConfigurationService();
+
             // Set the session ID and IP address
-            String ip = request.getRemoteAddr();
-            if (useProxies == null) {
-                useProxies = DSpaceServicesFactory.getInstance().getConfigurationService().getBooleanProperty("useProxies", false);
-            }
-            if(useProxies && request.getHeader("X-Forwarded-For") != null)
-            {
-                /* This header is a comma delimited list */
-	            for(String xfip : request.getHeader("X-Forwarded-For").split(","))
-                {
-                    if(!request.getHeader("X-Forwarded-For").contains(ip))
-                    {
-                        ip = xfip.trim();
-                    }
-                }
-	        }
-            context.setExtraLogInfo("session_id=" + request.getSession().getId() + ":ip_addr=" + ip);
+            String sessionId = configurationService.getBooleanProperty("privacy.logging.store_session_id", true) ? request.getSession().getId() : "anonymous";
+			String ip = "anonymous";
+
+			if (configurationService.getBooleanProperty("privacy.logging.store_ip", true)) {
+				ip = request.getRemoteAddr();
+				if (useProxies == null) {
+					useProxies = configurationService.getBooleanProperty("useProxies", false);
+				}
+				if (useProxies && request.getHeader("X-Forwarded-For") != null) {
+					/* This header is a comma delimited list */
+					for (String xfip : request.getHeader("X-Forwarded-For").split(",")) {
+						if (!request.getHeader("X-Forwarded-For").contains(ip)) {
+							ip = xfip.trim();
+						}
+					}
+				}
+			}
+
+			context.setExtraLogInfo("session_id=" + sessionId + ":ip_addr=" + ip);
 
             // Store the context in the request
             request.setAttribute(DSPACE_CONTEXT, context);

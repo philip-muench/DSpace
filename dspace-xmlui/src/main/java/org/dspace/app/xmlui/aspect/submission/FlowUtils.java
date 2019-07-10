@@ -142,9 +142,10 @@ public class FlowUtils {
                 // load submission info
                 subInfo = SubmissionInfo.load(httpRequest, submission);
     
-                // Set the session ID
-                context.setExtraLogInfo("session_id="
-                        + request.getSession().getId());
+                if (DSpaceServicesFactory.getInstance().getConfigurationService()
+						.getBooleanProperty("privacy.logging.store_session_id", true)) {
+					context.setExtraLogInfo("session_id=" + request.getSession().getId());
+				}
     
                 // Store the submissionInfo in the request
                 request.setAttribute(DSPACE_SUBMISSION_INFO, subInfo);

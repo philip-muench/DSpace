@@ -39,7 +39,6 @@ import org.dspace.content.Community;
 import org.dspace.content.DCDate;
 import org.dspace.content.DSpaceObject;
 import org.dspace.content.Item;
-import org.dspace.core.ConfigurationManager;
 import org.dspace.core.Constants;
 import org.dspace.core.Context;
 import org.dspace.core.Email;
@@ -55,6 +54,8 @@ import org.dspace.identifier.DOI;
 import org.dspace.identifier.factory.IdentifierServiceFactory;
 import org.dspace.identifier.service.DOIService;
 import org.dspace.identifier.service.IdentifierService;
+import org.dspace.services.ConfigurationService;
+import org.dspace.services.factory.DSpaceServicesFactory;
 
 /**
  * Miscellaneous UI utility methods
@@ -75,23 +76,25 @@ public class UIUtil extends Util
 	 */
 	private static Pattern p = Pattern.compile("[^/]*$");
 	
-        private static boolean initialized = false;
+    private static boolean initialized = false;
 	    
 	private static AuthenticationService authenticationService;
 	private static EPersonService personService;
-        private static IdentifierService identifierService;
-        private static DOIService doiService;
-        private static HandleService handleService;
+	private static IdentifierService identifierService;
+	private static DOIService doiService;
+	private static HandleService handleService;
+	private static ConfigurationService configurationService;
 	
 	private static synchronized void initialize() {
 		if (initialized) {
 			return;
 		}
 		authenticationService = AuthenticateServiceFactory.getInstance().getAuthenticationService();
-                doiService = IdentifierServiceFactory.getInstance().getDOIService();
-                handleService = HandleServiceFactory.getInstance().getHandleService();
-                identifierService = IdentifierServiceFactory.getInstance().getIdentifierService();
+		doiService = IdentifierServiceFactory.getInstance().getDOIService();
+		handleService = HandleServiceFactory.getInstance().getHandleService();
+		identifierService = IdentifierServiceFactory.getInstance().getIdentifierService();
 		personService = EPersonServiceFactory.getInstance().getEPersonService();
+		configurationService = DSpaceServicesFactory.getInstance().getConfigurationService();
 	}
 
     /**
@@ -167,22 +170,25 @@ public class UIUtil extends Util
             }
 
             // Set the session ID and IP address
-            String ip = request.getRemoteAddr();
-            if (useProxies == null) {
-                useProxies = ConfigurationManager.getBooleanProperty("useProxies", false);
-            }
-            if(useProxies && request.getHeader("X-Forwarded-For") != null)
-            {
-                /* This header is a comma delimited list */
-	            for(String xfip : request.getHeader("X-Forwarded-For").split(","))
-                {
-                    if(!request.getHeader("X-Forwarded-For").contains(ip))
-                    {
-                        ip = xfip.trim();
-                    }
-                }
-	        }
-            c.setExtraLogInfo("session_id=" + request.getSession().getId() + ":ip_addr=" + ip);
+            String sessionId = configurationService.getBooleanProperty("privacy.logging.store_session_id", true) ? request.getSession().getId() : "anonymous";
+			String ip = "anonymous";
+
+			if (configurationService.getBooleanProperty("privacy.logging.store_ip", true)) {
+				ip = request.getRemoteAddr();
+				if (useProxies == null) {
+					useProxies = configurationService.getBooleanProperty("useProxies", false);
+				}
+				if (useProxies && request.getHeader("X-Forwarded-For") != null) {
+					/* This header is a comma delimited list */
+					for (String xfip : request.getHeader("X-Forwarded-For").split(",")) {
+						if (!request.getHeader("X-Forwarded-For").contains(ip)) {
+							ip = xfip.trim();
+						}
+					}
+				}
+			}
+
+			c.setExtraLogInfo("session_id=" + sessionId + ":ip_addr=" + ip);
 
             // Store the context in the request
             request.setAttribute("dspace.context", c);
@@ -252,7 +258,7 @@ public class UIUtil extends Util
         
         // do we prefer DOIs or handles?
         if (dois != null
-                && ("doi".equalsIgnoreCase(ConfigurationManager.getProperty("webui.preferred.identifier")) 
+                && ("doi".equalsIgnoreCase(configurationService.getProperty("webui.preferred.identifier")) 
                     || handles == null))
         {
             return dois;
@@ -488,14 +494,14 @@ public class UIUtil extends Util
 
         try
         {
-            String recipient = ConfigurationManager
+            String recipient = configurationService
                     .getProperty("alert.recipient");
 
             if (StringUtils.isNotBlank(recipient))
             {
                 Email email = Email.getEmail(I18nUtil.getEmailFilename(locale, "internal_error"));
                 email.addRecipient(recipient);
-                email.addArgument(ConfigurationManager
+                email.addArgument(configurationService
                         .getProperty("dspace.url"));
                 email.addArgument(new Date());
                 email.addArgument(request.getSession().getId());
