@@ -8,6 +8,7 @@
 package org.dspace.core;
 
 import org.dspace.eperson.EPerson;
+import org.dspace.services.factory.DSpaceServicesFactory;
 
 /**
  * Class for generating standard log header

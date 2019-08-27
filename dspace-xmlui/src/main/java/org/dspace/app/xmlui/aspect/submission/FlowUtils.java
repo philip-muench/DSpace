@@ -25,6 +25,7 @@ import org.dspace.core.Context;
 import org.dspace.submit.AbstractProcessingStep;
 import org.dspace.workflow.WorkflowItemService;
 import org.dspace.workflow.factory.WorkflowServiceFactory;
+import org.dspace.services.factory.DSpaceServicesFactory;
 
 import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
